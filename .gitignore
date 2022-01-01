@@ -131,6 +131,9 @@ dmypy.json
 .idea/
 .DS_Store
 
+credentials.py
+
 training_pipeline/models/
 training_pipeline/runs/
 training_pipeline/wandb/
+training_pipeline/videos/

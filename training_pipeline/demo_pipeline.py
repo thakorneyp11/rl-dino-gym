@@ -8,6 +8,7 @@ from gym.utils import seeding
 
 from gym_env.spaces.person import Person
 from gym_env.spaces.items import RockItem, BirdItem, EnergyItem
+from gym_env.envs.dino_wrapper import ConcatObs
 
 import argparse
 import pendulum
@@ -28,13 +29,14 @@ def make_env(env_id, seed):
     env = gym.make(env_id)
     env.seed(seed)
     # check_env(_env)
+    env = ConcatObs(env, 6)
     env = Monitor(env)
     print('successfully create gym environment')
     return env
 
 config = {
         "algorithm": "DQN",
-        "policy_type": "CnnPolicy",
+        "policy_type": "MlpPolicy",
         "seed": 0
     }
 
@@ -53,7 +55,7 @@ for i in range(5):
     while True:
         action = model.action_space.sample()
         obs, reward, done, info = env.step(action)
-        # env.render()
+        env.render()
         time.sleep(0.1)
         if done:
             break

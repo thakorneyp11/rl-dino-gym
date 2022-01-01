@@ -10,13 +10,14 @@ import wandb
 from wandb.integration.sb3 import WandbCallback
 
 import gym_env  # import this directory to create environment
+from gym_env.envs.dino_wrapper import ConcatObs
 
 
 def pipeline_arg_parser():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--env-id', '-e', help='environment ID', type=str, default='DinoGame-v0')
     parser.add_argument('--seed', '-s', help='reproduce seed', type=int, default=0)
-    parser.add_argument('--num-timesteps', type=int, default=int(5e5))
+    parser.add_argument('--num-timesteps', type=int, default=int(2.5e6))
     return parser.parse_args()
 
 
@@ -42,6 +43,7 @@ def make_env(env_id, seed):
         _env = gym.make(env_id)
         _env.seed(seed)
         # check_env(_env)
+        _env = ConcatObs(_env, 6)
         _env = Monitor(_env)
         return _env
     env = DummyVecEnv([_make_env])
@@ -81,8 +83,10 @@ if __name__ == '__main__':
 
     config_info = {
         "algorithm": "DQN",
-        "policy_type": "CnnPolicy",
-        "seed": working_seed
+        "policy_type": "MlpPolicy",
+        "seed": working_seed,
+        "reward_conditions": "step: +1, energy spawn: 20%, energy: +20, bird/rock/done: -30, miss energy: -20, miss rock/bird: +5",
+        "concat obs": "6-lookback observation_space"
     }
 
     env = make_env(env_id, working_seed)
