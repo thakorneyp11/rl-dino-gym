@@ -20,18 +20,14 @@ class DinoEnv(Env):
         # TODO: create option to use an element-coordinate observation space
         self.image_obs = image_obs
 
-        self.observation_shape = (350, 900, 3)
-        self.observation_space = spaces.Box(low=np.full(self.observation_shape, 0),
-                                            high=np.full(self.observation_shape, 255),
-                                            dtype=np.uint8)
-        self.action_space = spaces.Discrete(3, )
+        self.canvas_shape = (350, 900, 3)
+        self.canvas_position_setup()
+        self.dino_setup()
 
-        self.canvas = np.ones(self.observation_shape)
+
+        self.setup_spaces()
+
         self.elements = []
-        self.x_min = 0
-        self.x_max = 900
-        self.y_min = 75
-        self.y_max = 300
 
         self.ep_reward = 0
         self.step_count = 0
@@ -43,20 +39,35 @@ class DinoEnv(Env):
         self.episode_idx = -1
         self.verbose = verbose
 
-        self.seed()
-        self.dino_setup()
-        self.canvas_position_setup()
+        self.video_count = 0
 
-    def dino_setup(self):
-        self.dino_base_x = 150
-        self.dino_base_y = 300
-        self.dino = Person("dino person", self.dino_base_x, self.dino_base_x, 50, 300)
-        self.dino.set_position(self.dino_base_x, self.dino_base_y)
+        self.seed()
 
     def canvas_position_setup(self):
         self.y_row_3 = 200
         self.y_row_2 = 250
         self.y_row_1 = 300
+        self.x_min = 0
+        self.x_max = 900
+        self.y_min = 75
+        self.y_max = 300
+        self.canvas = np.ones(self.canvas_shape)
+
+    def dino_setup(self):
+        self.dino_base_x = 150
+        self.dino_base_y = self.y_max
+        self.dino = Person("dino person", self.dino_base_x, self.dino_base_x, self.y_min, self.y_max)
+        self.dino.set_position(self.dino_base_x, self.dino_base_y)
+
+    def setup_spaces(self):
+        """
+        format: [dino_x, dino_y, dino_w, dino_h, obj1_x, obj1_y, obj1_w, obj1_h, obj1_type, obj2_x, obj2_y, obj2_w, obj2_h, obj2_type]
+        obj_type = {0: 'rock/bird', 1:'energy'}
+        """
+        self.observation_space = spaces.Box(low=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                            high=np.array([self.dino_base_x, self.y_max, 50, 100, self.x_max, self.y_max, 150, 100, 1, self.x_min, self.y_min, 150, 100, 1]),
+                                            dtype=np.float32)
+        self.action_space = spaces.Discrete(3, )
 
     def seed(self, seed=None):
         """Set seed to reproduce the training"""
@@ -78,12 +89,15 @@ class DinoEnv(Env):
 
         self.elements = [self.dino]
 
-        self.canvas = np.ones(self.observation_shape)
-        self.draw_on_canvas()
+        self.frames = []
 
-        return self.canvas
+        self.draw_on_canvas()
+        new_obs = self.get_observation()
+
+        return new_obs
 
     def step(self, action):
+        # TODO: penalty if jump for nothing1111
         self.step_count += 1
         self.current_energy -= 1
         done = False
@@ -115,9 +129,9 @@ class DinoEnv(Env):
         # spawn object to the environment
         if self.step_count % 10 == 0:
             # spawn obstacle items
-            if self.np_random.random() < 0.9:
+            if self.np_random.random() < 0.8:
                 # spawn rock item
-                if self.np_random.random() < 0.7:
+                if self.np_random.random() < 0.6:
                     rock_type = self.np_random.randint(2)  # select between rock 0 (1x1) and 2 (2x1)
                     if rock_type == 1:
                         rock_type = 2
@@ -163,7 +177,7 @@ class DinoEnv(Env):
                 self.elements.append(spawned_energy)
                 self.energy_count += 1
 
-            # move elements: check for collision
+        # move elements: check for collision
         for element in self.elements:
             if isinstance(element, BirdItem):
                 if element.get_position()[0] <= self.x_min:
@@ -174,7 +188,11 @@ class DinoEnv(Env):
                 if self.has_collided(self.dino, element):
                     done = True
                     # step_reward -= 50
-                    self.elements.remove(self.dino)
+                    # self.elements.remove(self.dino)
+
+                # reward when miss the BirdItem
+                if self.dino.x == element.x and not self.has_collided(self.dino, element):
+                    step_reward += 5
 
             if isinstance(element, RockItem):
                 if element.get_position()[0] <= self.x_min:
@@ -185,7 +203,15 @@ class DinoEnv(Env):
                 if self.has_collided(self.dino, element):
                     done = True
                     # step_reward -= 50
-                    self.elements.remove(self.dino)
+                    # self.elements.remove(self.dino)
+
+                # reward when miss the RockItem
+                if element.icon_idx == 0:  # rock 1x1
+                    if self.dino.x == element.x and not self.has_collided(self.dino, element):
+                        step_reward += 5
+                elif element.icon_idx == 2:  # rock 2x1
+                    if (self.dino.x == element.x or self.dino.x == element.x+50) and not self.has_collided(self.dino, element):
+                        step_reward += 5
 
             if isinstance(element, EnergyItem):
                 if element.get_position()[0] <= self.x_min:
@@ -195,26 +221,47 @@ class DinoEnv(Env):
 
                 if self.has_collided(self.dino, element):
                     step_reward += 20
-                    self.current_energy += 500
+                    self.current_energy += 100
                     self.current_energy = element.clamp(self.current_energy, 0, self.max_energy)
                     self.elements.remove(element)
+
+                # penalty when miss the EnergyItem
+                if self.dino.x == element.x and not self.has_collided(self.dino, element):
+                    step_reward -= 20
 
         if self.current_energy <= 0:
             done = True
 
+        change_max_reward = False
         if done:
-            step_reward -= 15
-            print(f'finish episode {self.episode_idx} with reward={self.ep_reward+step_reward} (max: {self.max_reward})')
-
-        self.ep_reward += step_reward
-
-        if self.ep_reward > self.max_reward:
-            self.max_reward = self.ep_reward
+            step_reward -= 30
+            self.ep_reward += step_reward
+            if self.ep_reward > self.max_reward:
+                self.max_reward = self.ep_reward
+                change_max_reward = True
+            print(f'finish episode {self.episode_idx} with reward={self.ep_reward} (max: {self.max_reward})')
+        else:
+            self.ep_reward += step_reward
 
         self.draw_on_canvas()
         # self.render()
+        self.frames.append(self.canvas)
 
-        return self.canvas, step_reward, done, {}
+        if done:
+            for i in range(3):
+                self.frames.append(self.canvas)
+
+        if done and change_max_reward == True and self.max_reward >= 30:
+            if self.video_count <= 100:
+                self.set_video_writer(self.max_reward)
+                for frame in self.frames:
+                    self.writer.write(np.uint8(frame * 255.0))
+                self.writer.release()
+                self.video_count += 1
+
+        new_obs = self.get_observation(done)
+
+        return new_obs, step_reward, done, {}
 
     def render(self, mode="human"):
         if mode == "human":
@@ -229,7 +276,7 @@ class DinoEnv(Env):
         print('close gym environment')
 
     def draw_on_canvas(self):
-        self.canvas = np.ones(self.observation_shape)
+        self.canvas = np.ones(self.canvas_shape)
 
         for element in self.elements:
             height, width, _ = element.icon_image.shape
@@ -248,17 +295,59 @@ class DinoEnv(Env):
         text = 'Energy Left: {} | Rewards: {} | Max Reward: {}'.format(self.current_energy, self.ep_reward, self.max_reward)
         self.canvas = cv2.putText(self.canvas, text, (10, 20), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (0, 0, 0), 1)
 
+    def get_observation(self, done=False):
+        """
+        format: [dino_x, dino_y, dino_w, dino_h, obj1_x, obj1_y, obj1_w, obj1_h, obj1_type, obj2_x, obj2_y, obj2_w, obj2_h, obj2_type]
+        """
+        if len(self.elements) <= 0:
+            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        if len(list(filter(lambda x: isinstance(x, Person), self.elements))) <= 0:
+            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        if done:
+            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        new_obs = []
+        for element in self.elements:
+            if isinstance(element, Person):
+                new_obs.append(element.x)
+                new_obs.append(element.y)
+                new_obs.append(element.icon_width)
+                new_obs.append(element.icon_height)
+            elif isinstance(element, RockItem) or isinstance(element, BirdItem):
+                new_obs.append(element.x)
+                new_obs.append(element.y)
+                new_obs.append(element.icon_width)
+                new_obs.append(element.icon_height)
+                new_obs.append(0)
+            elif isinstance(element, EnergyItem):
+                new_obs.append(element.x)
+                new_obs.append(element.y)
+                new_obs.append(element.icon_width)
+                new_obs.append(element.icon_height)
+                new_obs.append(1)
+
+        length_obs = len(new_obs)
+        if length_obs < 14:
+            for i in range(14-length_obs):
+                new_obs.append(0)
+
+        return new_obs
+
     def has_collided(self, element1, element2):
         x_element1, y_element1 = self.get_center_position(element1)
         x_element2, y_element2 = self.get_center_position(element2)
 
-        x_col = 2 * abs(x_element1 - x_element2) <= (element1.icon_width + element2.icon_width)
-        y_col = 2 * abs(y_element1 - y_element2) <= (element1.icon_height + element2.icon_height)
+        x_col = 2 * abs(x_element1 - x_element2) < (element1.icon_width + element2.icon_width)
+        y_col = 2 * abs(y_element1 - y_element2) < (element1.icon_height + element2.icon_height)
 
         collided = x_col and y_col
 
         # if collided:
         #     print(f'{element1.name} collided with {element2.name}')
+        #     print(f'{element1.name}: x={element1.x} y={element1.y} w={element1.icon_width} h={element1.icon_height}')
+        #     print(f'{element2.name}: x={element2.x} y={element2.y} w={element2.icon_width} h={element2.icon_height}')
 
         return collided
 
@@ -269,6 +358,11 @@ class DinoEnv(Env):
         new_y = y - int(element.icon_height / 2)
         return new_x, new_y
 
+    def set_video_writer(self, max_reward):
+        vid_path = f'/Users/thakorns/Desktop/Eyp/codebases/rl-dino-gym/training_pipeline/videos/video_{self.episode_idx}_{max_reward}.mp4'
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fps = 10
+        self.writer = cv2.VideoWriter(vid_path, fourcc, fps, (self.canvas_shape[1], self.canvas_shape[0]), True)
 
 ACTION_MEANING = {
     0: "do nothing",

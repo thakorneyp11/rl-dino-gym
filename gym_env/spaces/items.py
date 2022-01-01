@@ -41,6 +41,7 @@ class RockItem(Point):
     def __init__(self, name, icon_idx, x_min, x_max, y_min, y_max):
         super(RockItem, self).__init__(name, x_min, x_max, y_min, y_max)
 
+        self.icon_idx = icon_idx
         icon_name = self.icon_names[icon_idx]
         self.icon_image = self.icon_info[icon_name]['image']
         self.icon_width = self.icon_info[icon_name]['width']
